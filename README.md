@@ -8,7 +8,7 @@ The training data came from the Project Gutenberg files avaliable in NLTK. The t
 
 Potential Pitfalls:
 -Scalability:
-The time expensive part of the code is reading in the words of each file to create its unique feature vector. However, the way the code is designed, new files can be added to the existing model without repeating this expensive process for files already present in the model.
+The time expensive part of the code is training, including reading in the words of each file to create its unique feature vector. However, the way the code is designed, new files can be added to the existing model without repeating this expensive process for files already present in the model.
 Possibilities for addressing this scalability issue: 
 *Use features other than words present in the document for classification. For instance, document length, average sentence length, vocabulary size, etc.
 *Examine the model to determine common words (such as function words) that do not differ drastically in probability across the documents in the corpus. Then redo the model, first stripping these words from the files before training.
