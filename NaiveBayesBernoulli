@@ -1,0 +1,224 @@
+'''
+Naive Bayes (Bernoulli model) classifier for finding the author and title of a
+given text sample. The classifier is trained on the files in the corpus, and
+feature vectors contain information on the words present in each file.
+
+Command: python NaiveBayesBernoulli.py modelFile
+'''
+
+import sys, math
+from collections import defaultdict
+from collections import OrderedDict
+import numpy as np
+from nltk.corpus import gutenberg
+
+class FeatureVector:
+    def __init__(self, doc,originalLabel,features,assignedLabel=None):
+        self.doc = doc
+        self.originalLabel = originalLabel
+        self.assignedLabel = assignedLabel
+        self.features = features
+
+def loadFeatureVectors(corpus,index2label={},index2feature={},label2index={},feature2index={}):
+    '''Function to obtain a feature vector for every document in the corpus.
+    -All arguments (except corpus) are set to default as empty dictionaries so that
+    the model is generated from scratch. These arguments would be nonempty if the
+    function was called to add more files to the existing model.'''
+    featIndex=0; labelIndex=0; docIndex=0
+    wordCounts={}
+    wordClassCounts={}
+    vectors=[]
+    for filename in corpus:
+        label=filename
+        if label not in label2index:
+            label2index[label] = labelIndex
+            index2label[labelIndex] = label
+            labelIndex += 1
+        li = label2index[label]
+        data = []
+        if type(corpus) == list:
+            PresentWords = set(gutenberg.words(filename))
+        else:
+            PresentWords = corpus[filename].split()
+        for word in PresentWords:
+            feature = word
+            if feature not in feature2index:
+                feature2index[feature] = featIndex
+                index2feature[featIndex] = feature
+                featIndex += 1
+            fi = feature2index[feature]
+            data.append(fi)
+            if fi in wordCounts.keys():
+                wordCounts[fi]+=1
+            else:
+                wordCounts[fi]=1
+            if (li,fi) in wordClassCounts.keys():
+                wordClassCounts[(li,fi)]+=1
+            else:
+                wordClassCounts[(li,fi)]=1
+        vectors.append(FeatureVector(docIndex,li,data))
+        docIndex += 1
+    return vectors, wordCounts, wordClassCounts, index2label, index2feature, label2index, feature2index
+
+def separateByClass(vectors):
+    '''Separates feature vectors by class/label.'''
+    separated={}
+    for i in range(0,len(vectors)):
+        vector = vectors[i]
+        label = vector.originalLabel
+        if label not in separated:
+            separated[label]=[]
+        separated[label].append(vector)
+    return separated
+
+def calculateProbabilities(classData,classPriorDelta,wordCnts,CondProbDelta,wordClassCnts):
+    '''Calculates probabilities to be used by the model for classification.'''
+    totalClassCnt = sum(len(v) for v in classData.values())
+    numClasses = len(classData)
+    classPriors={}
+    condProbs=defaultdict(list)
+    condProbs = np.empty((numClasses,len(wordCnts)))
+    lgRatios = np.empty((numClasses,len(wordCnts)))
+    for c in classData:
+        row = np.empty(len(wordCnts))
+        row_ratios = np.empty(len(wordCnts))
+        classCnt = len(classData[c])
+        num1 = classPriorDelta + classCnt
+        denom1 = (classPriorDelta*numClasses) + totalClassCnt
+        classPriorProb = float(num1)/denom1
+        classPriorLog = math.log10(classPriorProb)
+        classPriors[c] = (classPriorProb,classPriorLog)
+        absentWordProb = CondProbDelta / ((2*CondProbDelta) + classCnt)
+        absentWordLgratio = math.log10(absentWordProb/(1-absentWordProb))
+        row.fill(absentWordProb)
+        row_ratios.fill(absentWordLgratio)
+        for word in wordCnts:
+            if (c,word) not in wordClassCnts.keys():
+                continue
+            else:
+                pairCnt = wordClassCnts[(c,word)]
+                num2 = CondProbDelta + pairCnt
+                denom2 = (2*CondProbDelta) + classCnt
+                prob = num2/denom2
+                lgratio = math.log10(prob/(1-prob))
+                row[word] = prob
+                row_ratios[word] = lgratio
+                condProbs[c] = row
+        lgRatios[c] = row_ratios
+    return classPriors, condProbs, lgRatios
+
+'''Set delta values to be used in add-delta smoothing, which is used when calculating
+the probabilities used by the model.'''
+classPriorDelta = 0
+condProbDelta = 0.5
+
+'''Split training and testing values. Data used for testing here is from NLTK files
+for Project Gutenberg, 70% training and 30% testing. '''
+training = gutenberg.fileids()
+testing = {}
+for fileid in gutenberg.fileids():
+    sents = gutenberg.sents(fileid)
+    sample = []
+    sample.append(' '.join(sents[4]))
+    sample.append(' '.join(sents[5]))
+    sample.append(' '.join(sents[6]))
+    testing[fileid]= ' '.join(sample)
+
+'''Commands to create the model.'''
+trainData = loadFeatureVectors(training)
+classes = separateByClass(trainData[0])
+Probs = calculateProbabilities(classes,classPriorDelta,trainData[1],condProbDelta,trainData[2])
+PriorProbs = Probs[0]
+CondProbs = Probs[1]
+LgRatios = Probs[2]
+index2label = trainData[3]
+index2feature = trainData[4]
+
+'''Optional: Print a model file (given as the 1st argument when the program is run)
+to show both prior and conditional probabilities.'''
+modelFile = open(sys.argv[1],"w")
+modelFile.write("%%%%% prior prob P(c) %%%%%\n")
+for k in PriorProbs:
+    className = index2label[k]
+    prob = PriorProbs[k][0]
+    log = PriorProbs[k][1]
+    modelFile.write("{}\t{}\t{}\n".format(className,prob,log))
+modelFile.write("%%%%% conditional prob P(f|c) %%%%%\n")
+sumAll ={}
+for i in range(len(CondProbs)):
+    row = CondProbs[i]
+    className = index2label[i]
+    modelFile.write("%%%%% conditional prob P(f|c) c={} %%%%%\n".format(className))
+    sumAll[i] = 0
+    for j in range(len(row)):
+        feature = index2feature[j]
+        prob = row[j]
+        log = math.log10(prob)
+        modelFile.write("{}\t{}\t{}\t{}\n".format(feature,className,prob,log))
+        s = math.log10(1-prob)
+        sumAll[i] += s
+modelFile.close()
+
+def classify(priors,conditionals,logRatios,docs): #,filename):
+    '''Function takes components of existing model and a set of feature vectors as
+    input and adds a value for self.assignedLabel to each feature vector.'''
+    for i in range(len(docs)):
+        d = docs[i]
+        presentWords = d.features
+        prob={}
+        total=[]; subP={}
+        for j in range(len(conditionals)):
+            sumPresent = 0
+            sum1 = sumAll[j]
+            logC = priors[j][1]
+            for word in presentWords:
+                sumPresent += logRatios[j][word]
+            logProbDocClass = logC + sumPresent + sum1
+            total.append(logProbDocClass)
+            subP[j] = logProbDocClass
+        bestProb = 0;bestClass = None;denom = 0
+        largest = max(total)
+        for x in total:
+            if x == largest:
+                denom += 1
+            else:
+                denom += math.pow(10,x-largest)
+        for c in subP:
+            exp = subP[c]-largest
+            p = math.pow(10,exp)/denom
+            prob[p] = c
+            if p > bestProb:
+                bestProb = p
+                bestClass = c
+                sortedResults = OrderedDict(sorted(prob.items(),reverse = True))
+        for entry in sortedResults:
+            c = index2label[prob[entry]]
+            p = entry
+        d.assignedLabel = bestClass
+
+classify(PriorProbs,CondProbs,LgRatios,trainData[0])
+testData = loadFeatureVectors(testing,index2label,index2feature,trainData[5],trainData[6])
+classify(PriorProbs,CondProbs,LgRatios,testData[0])
+
+'''Prints training and test accuracy to stdout for evaluation.'''
+trainVectors = trainData[0]
+correct=0; total=len(trainVectors)
+for vector in trainVectors:
+    true = vector.originalLabel
+    sys = vector.assignedLabel
+    if true == sys:
+        correct += 1
+print('\n Training accuracy={}'.format(correct/total))
+
+testVectors = testData[0]
+correct=0.0; total=len(testVectors)
+for vector in testVectors:
+    true = vector.originalLabel
+    sys = vector.assignedLabel
+    print(true,sys)
+    if true == sys:
+        correct += 1
+print('\n Test accuracy={}'.format(correct/total))
+
+
+
