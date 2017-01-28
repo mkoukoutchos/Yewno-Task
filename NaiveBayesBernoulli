@@ -215,7 +215,6 @@ correct=0.0; total=len(testVectors)
 for vector in testVectors:
     true = vector.originalLabel
     sys = vector.assignedLabel
-    print(true,sys)
     if true == sys:
         correct += 1
 print('\n Test accuracy={}'.format(correct/total))
