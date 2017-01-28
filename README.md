@@ -5,6 +5,8 @@ A Naive Bayes (Bernoulli model) classifier is built to classify the author and t
 
 Testing:
 The training data came from the Project Gutenberg files avaliable in NLTK. The test data consisted of a sample (consisting of a few sentences) from each file in the corpus. For evaluation, the accuracy of the classifier for both the training data and test data were printed to stdout. 
+-> Results of test run: 
+Training accuracy=1, Test accuracy=0.833333333333
 
 Potential Pitfalls:
 -Scalability:
